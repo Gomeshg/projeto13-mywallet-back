@@ -43,6 +43,12 @@ const loginSchema = joi.object({
     .required(),
 });
 
+const walletSchema = joi.object({
+  type: joi.string().valid("input", "output").required(),
+  value: joi.number().min(0).required(),
+  description: joi.string().trim().min(3).required(),
+});
+
 // joi.string.guid();
 
 server.post("/sign-up", async (req, res) => {
@@ -105,7 +111,7 @@ server.post("/sign-in", async (req, res) => {
 
         try {
           await db.collection("sessions").insertOne(session);
-          res.status(200).send({ token: session.token });
+          res.status(200).send(session);
         } catch (e) {
           res.status(500).send(e.message);
         }
@@ -120,11 +126,73 @@ server.post("/sign-in", async (req, res) => {
   }
 });
 
-server.put("/", async (req, res) => {
+server.get("/wallet", async (req, res) => {
+  const token = req.headers.authorization.split(" ")[1];
+
+  try {
+    const session = await db.collection("sessions").findOne({ token: token });
+
+    if (session) {
+      try {
+        const wallet = await db
+          .collection("wallet")
+          .find({ userID: new ObjectId(session.userID) })
+          .toArray();
+        res.status(200).send(wallet);
+      } catch (e) {
+        res.status(500).send(e.message);
+      }
+    } else {
+      res.sendStatus(403);
+    }
+  } catch (e) {
+    res.status(500).send(e.message);
+  }
+});
+
+server.post("/wallet", async (req, res) => {
+  const token = req.headers.authorization.split(" ")[1];
+
+  try {
+    const session = await db.collection("sessions").findOne({ token: token });
+
+    if (session) {
+      const body = req.body;
+      const validation = walletSchema.validate(body, { abortEarly: false });
+      if (validation.error) {
+        res
+          .status(422)
+          .send(validation.error.details.map((item) => item.message));
+        return;
+      }
+
+      const data = {
+        type: stripHtml(validation.value.type).result,
+        description: stripHtml(validation.value.description).result,
+        value: Number(stripHtml(validation.value.value.toString()).result),
+        userID: session.userID,
+        date: dayjs().format("D/MM"),
+      };
+
+      try {
+        await db.collection("wallet").insertOne(data);
+        res.sendStatus(201);
+      } catch (e) {
+        res.status(500).send(e.message);
+      }
+    } else {
+      res.sendStatus(403);
+    }
+  } catch (e) {
+    res.status(500).send(e.message);
+  }
+});
+
+server.put("/wallet", async (req, res) => {
   res.sendStatus(200);
 });
 
-server.delete("/", async (req, res) => {
+server.delete("/wallet", async (req, res) => {
   res.sendStatus(200);
 });
 
