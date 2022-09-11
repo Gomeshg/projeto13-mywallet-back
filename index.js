@@ -49,6 +49,10 @@ const walletSchema = joi.object({
   description: joi.string().trim().min(3).required(),
 });
 
+const tokenSchema = joi.string().guid({
+  version: ["uuidv4", "uuidv5"],
+});
+
 // joi.string.guid();
 
 server.post("/sign-up", async (req, res) => {
@@ -127,7 +131,12 @@ server.post("/sign-in", async (req, res) => {
 });
 
 server.get("/wallet", async (req, res) => {
-  const token = req.headers.authorization.split(" ")[1];
+  let token;
+  try {
+    token = req.headers.authorization.split(" ")[1];
+  } catch (e) {
+    res.status(400).send(e.message);
+  }
 
   try {
     const session = await db.collection("sessions").findOne({ token: token });
@@ -193,7 +202,28 @@ server.put("/wallet", async (req, res) => {
 });
 
 server.delete("/wallet", async (req, res) => {
-  res.sendStatus(200);
+  let session;
+  let id;
+  try {
+    session = req.headers.authorization.split(" ")[1];
+    id = req.body.id;
+  } catch (e) {
+    res.status(400).send(e.message);
+  }
+
+  const validateToken = tokenSchema.validate(session);
+  if (validateToken.error) {
+    res
+      .status(422)
+      .send(validateToken.error.details.map((item) => item.message));
+  }
+
+  try {
+    await db.collection("wallet").deleteOne({ _id: new ObjectId(id) });
+    res.sendStatus(200);
+  } catch (e) {
+    res.status(500).send(e.message);
+  }
 });
 
 server.listen(PORT, () => {
