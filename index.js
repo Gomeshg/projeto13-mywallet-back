@@ -372,6 +372,44 @@ server.delete("/wallet/:id", async (req, res) => {
   }
 });
 
+server.delete("/logout", async (req, res) => {
+  let auth;
+  try {
+    auth = {
+      token: req.headers.authorization.split(" ")[1],
+    };
+  } catch (e) {
+    res.status(400).send(e.message);
+  }
+
+  const validateToken = tokenSchema.validate(auth, { abortEarly: false });
+  if (validateToken.error) {
+    res
+      .status(422)
+      .send(validateToken.error.details.map((item) => item.message));
+  }
+  try {
+    const session = await db
+      .collection("sessions")
+      .findOne({ token: validateToken.value.token });
+
+    if (session) {
+      try {
+        await db
+          .collection("sessions")
+          .deleteOne({ token: validateToken.value.token });
+        res.sendStatus(200);
+      } catch (e) {
+        res.status(500).send(e);
+      }
+    } else {
+      res.sendStatus(404);
+    }
+  } catch (e) {
+    res.status(500).send(e);
+  }
+});
+
 server.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
