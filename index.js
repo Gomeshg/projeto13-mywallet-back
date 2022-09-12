@@ -8,8 +8,6 @@ import { MongoClient, ObjectId } from "mongodb";
 import bcrypt from "bcrypt";
 import { v4 as uuid } from "uuid";
 
-// import userController from "./user/userController.js";
-
 const server = express();
 
 server.use(cors());
@@ -413,5 +411,3 @@ server.delete("/logout", async (req, res) => {
 server.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
-
-// server.use("/", userController);
