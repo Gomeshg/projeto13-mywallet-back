@@ -49,16 +49,24 @@ const walletSchema = joi.object({
   description: joi.string().trim().min(3).required(),
 });
 
-const tokenSchema = joi.string().guid({
-  version: ["uuidv4", "uuidv5"],
+const walletSchemaUpdate = joi.object({
+  value: joi.number().min(0).required(),
+  description: joi.string().trim().min(3).required(),
 });
 
-// joi.string.guid();
+const tokenSchema = joi.object({
+  token: joi
+    .string()
+    .guid({
+      version: ["uuidv4", "uuidv5"],
+    })
+    .required(),
+});
 
 server.post("/sign-up", async (req, res) => {
   let user = req.body;
 
-  const validation = signUpSchema.validate(user, { abortEarly: false });
+  const validationBody = signUpSchema.validate(user, { abortEarly: false });
   if (validation.error) {
     res.status(422).send(validation.error.details.map((item) => item.message));
     return;
@@ -105,8 +113,6 @@ server.post("/sign-in", async (req, res) => {
 
     if (user) {
       if (bcrypt.compareSync(password, user.password)) {
-        // CRIAR O TOKEN E INSERIR O USUÁRIO EM SESSION
-
         const session = {
           token: uuid(),
           userID: user._id,
@@ -131,15 +137,26 @@ server.post("/sign-in", async (req, res) => {
 });
 
 server.get("/wallet", async (req, res) => {
-  let token;
+  let auth;
   try {
-    token = req.headers.authorization.split(" ")[1];
+    auth = {
+      token: req.headers.authorization.split(" ")[1],
+    };
   } catch (e) {
-    res.status(400).send(e.message);
+    res.status(400).send("Token não enviado!");
+  }
+
+  const validateToken = tokenSchema.validate(auth, { abortEarly: false });
+  if (validateToken.error) {
+    res
+      .status(422)
+      .send(validateToken.error.details.map((item) => item.message));
   }
 
   try {
-    const session = await db.collection("sessions").findOne({ token: token });
+    const session = await db
+      .collection("sessions")
+      .findOne({ token: validateToken.value.token });
 
     if (session) {
       try {
@@ -160,25 +177,41 @@ server.get("/wallet", async (req, res) => {
 });
 
 server.post("/wallet", async (req, res) => {
-  const token = req.headers.authorization.split(" ")[1];
+  const body = req.body;
+  let auth;
+  try {
+    auth = {
+      token: req.headers.authorization.split(" ")[1],
+    };
+  } catch (e) {
+    res.status(400).send("Token não enviado!");
+  }
+
+  const validateToken = tokenSchema.validate(auth, { abortEarly: false });
+  if (validateToken.error) {
+    res
+      .status(422)
+      .send(validateToken.error.details.map((item) => item.message));
+  }
+
+  const validationBody = walletSchema.validate(body, { abortEarly: false });
+  if (validationBody.error) {
+    res
+      .status(422)
+      .send(validationBody.error.details.map((item) => item.message));
+    return;
+  }
 
   try {
-    const session = await db.collection("sessions").findOne({ token: token });
+    const session = await db
+      .collection("sessions")
+      .findOne({ token: validateToken.value.token });
 
     if (session) {
-      const body = req.body;
-      const validation = walletSchema.validate(body, { abortEarly: false });
-      if (validation.error) {
-        res
-          .status(422)
-          .send(validation.error.details.map((item) => item.message));
-        return;
-      }
-
       const data = {
-        type: stripHtml(validation.value.type).result,
-        description: stripHtml(validation.value.description).result,
-        value: Number(stripHtml(validation.value.value.toString()).result),
+        type: stripHtml(validationBody.value.type).result,
+        description: stripHtml(validationBody.value.description).result,
+        value: Number(stripHtml(validationBody.value.value.toString()).result),
         userID: session.userID,
         date: dayjs().format("D/MM"),
       };
@@ -197,21 +230,90 @@ server.post("/wallet", async (req, res) => {
   }
 });
 
-server.put("/wallet", async (req, res) => {
+server.put("/wallet/:id", async (req, res) => {
+  const { id } = req.params;
+  const body = req.body;
+  let auth;
+  try {
+    auth = {
+      token: req.headers.authorization.split(" ")[1],
+    };
+  } catch (e) {
+    res.status(400).send("Token não enviado!");
+  }
+
+  const validateToken = tokenSchema.validate(auth, { abortEarly: false });
+  if (validateToken.error) {
+    res
+      .status(422)
+      .send(validateToken.error.details.map((item) => item.message));
+  }
+
+  const validationBody = walletSchemaUpdate.validate(body, {
+    abortEarly: false,
+  });
+  if (validationBody.error) {
+    res
+      .status(422)
+      .send(validationBody.error.details.map((item) => item.message));
+    return;
+  }
+
+  try {
+    const session = await db
+      .collection("sessions")
+      .findOne({ token: validateToken.value.token });
+
+    if (session) {
+      const walletDataForUpdate = await db
+        .collection("wallet")
+        .findOne({ _id: new ObjectId(validationBody.value.id) });
+
+      if (walletDataForUpdate) {
+        try {
+          const newData = {
+            description: stripHtml(validationBody.value.description).result,
+            value: Number(
+              stripHtml(validationBody.value.value.toString()).result
+            ),
+          };
+
+          await db
+            .collection("wallet")
+            .updateOne(
+              { _id: new ObjectId(walletDataForUpdate._id) },
+              { $set: newData }
+            );
+          res.sendStatus(200);
+        } catch (e) {
+          res.status(500).send(e.message);
+        }
+      } else {
+        res.sendStatus(404);
+      }
+    } else {
+      res.sendStatus(403);
+    }
+  } catch (e) {
+    res.status(500).send(e.message);
+  }
+
   res.sendStatus(200);
 });
 
-server.delete("/wallet", async (req, res) => {
-  let session;
-  let id;
+server.delete("/wallet/:id", async (req, res) => {
+  let auth;
+  const { id } = req.params;
+
   try {
-    session = req.headers.authorization.split(" ")[1];
-    id = req.body.id;
+    auth = {
+      token: req.headers.authorization.split(" ")[1],
+    };
   } catch (e) {
     res.status(400).send(e.message);
   }
 
-  const validateToken = tokenSchema.validate(session);
+  const validateToken = tokenSchema.validate(auth, { abortEarly: false });
   if (validateToken.error) {
     res
       .status(422)
