@@ -67,15 +67,20 @@ server.post("/sign-up", async (req, res) => {
   let user = req.body;
 
   const validationBody = signUpSchema.validate(user, { abortEarly: false });
-  if (validation.error) {
-    res.status(422).send(validation.error.details.map((item) => item.message));
+  if (validationBody.error) {
+    res
+      .status(422)
+      .send(validationBody.error.details.map((item) => item.message));
     return;
   }
 
   user = {
-    name: stripHtml(validation.value.name).result,
-    email: stripHtml(validation.value.email).result,
-    password: bcrypt.hashSync(stripHtml(validation.value.password).result, 10),
+    name: stripHtml(validationBody.value.name).result,
+    email: stripHtml(validationBody.value.email).result,
+    password: bcrypt.hashSync(
+      stripHtml(validationBody.value.password).result,
+      10
+    ),
   };
 
   try {
@@ -165,6 +170,47 @@ server.get("/wallet", async (req, res) => {
           .find({ userID: new ObjectId(session.userID) })
           .toArray();
         res.status(200).send(wallet);
+      } catch (e) {
+        res.status(500).send(e.message);
+      }
+    } else {
+      res.sendStatus(403);
+    }
+  } catch (e) {
+    res.status(500).send(e.message);
+  }
+});
+
+server.get("/oneWallet/:id", async (req, res) => {
+  const { id } = req.params;
+  let auth;
+  try {
+    auth = {
+      token: req.headers.authorization.split(" ")[1],
+    };
+  } catch (e) {
+    res.status(400).send("Token não enviado!");
+  }
+
+  const validateToken = tokenSchema.validate(auth, { abortEarly: false });
+  if (validateToken.error) {
+    res
+      .status(422)
+      .send(validateToken.error.details.map((item) => item.message));
+  }
+
+  try {
+    const session = await db
+      .collection("sessions")
+      .findOne({ token: validateToken.value.token });
+
+    if (session) {
+      try {
+        const oneWallet = await db
+          .collection("wallet")
+          .findOne({ _id: new ObjectId(id) });
+
+        res.status(200).send(oneWallet);
       } catch (e) {
         res.status(500).send(e.message);
       }
@@ -267,7 +313,7 @@ server.put("/wallet/:id", async (req, res) => {
     if (session) {
       const walletDataForUpdate = await db
         .collection("wallet")
-        .findOne({ _id: new ObjectId(validationBody.value.id) });
+        .findOne({ _id: new ObjectId(id) });
 
       if (walletDataForUpdate) {
         try {
@@ -297,8 +343,6 @@ server.put("/wallet/:id", async (req, res) => {
   } catch (e) {
     res.status(500).send(e.message);
   }
-
-  res.sendStatus(200);
 });
 
 server.delete("/wallet/:id", async (req, res) => {
